@@ -130,8 +130,13 @@ function badgeCell(text) {
   return td;
 }
 
-function renderRows(tbodyId, emptyId, rows, rowFn) {
-  const tbody = document.getElementById(tbodyId);
+function renderRows(tableId, emptyId, rows, rowFn) {
+  // tableId is the <table>'s id; the rows themselves belong in its
+  // <tbody>, not the table element itself -- appending <tr> directly onto
+  // <table> via DOM APIs (as opposed to parsing HTML text, which browsers
+  // forgivingly auto-wrap) does not create an implicit tbody, and clearing
+  // the table element's content would wipe out <thead> too.
+  const tbody = document.getElementById(tableId).querySelector("tbody");
   const empty = document.getElementById(emptyId);
   tbody.textContent = "";
   if (!rows || rows.length === 0) {
