@@ -100,10 +100,40 @@ function fmtTime(epochSeconds) {
   return new Date(epochSeconds * 1000).toLocaleTimeString();
 }
 
+// Cell builders: all table content from the backend (gateway_id, reason
+// codes, quarantine detail strings, etc.) is attacker-influenced -- a
+// spoofed/unregistered device can set gateway_id to anything in a
+// submitted batch, and that string ends up here via /quarantine/recent.
+// Every cell is therefore built with textContent/DOM APIs, never
+// innerHTML or template-literal HTML, so no value can inject markup.
+function cell(text) {
+  const td = document.createElement("td");
+  td.textContent = text == null ? "" : String(text);
+  return td;
+}
+
+function reasonCell(text) {
+  const td = cell(text);
+  td.className = "reason";
+  return td;
+}
+
+function badgeCell(text) {
+  const td = document.createElement("td");
+  const span = document.createElement("span");
+  // `status` is backend-controlled (only ever "trusted"/"revoked", set by
+  // scripts/register_device.py), not attacker input, so it is safe to use
+  // as a CSS class name here -- but still never inserted as HTML.
+  span.className = "badge " + String(text);
+  span.textContent = String(text);
+  td.appendChild(span);
+  return td;
+}
+
 function renderRows(tbodyId, emptyId, rows, rowFn) {
   const tbody = document.getElementById(tbodyId);
   const empty = document.getElementById(emptyId);
-  tbody.innerHTML = "";
+  tbody.textContent = "";
   if (!rows || rows.length === 0) {
     if (empty) empty.style.display = "block";
     return;
@@ -111,7 +141,9 @@ function renderRows(tbodyId, emptyId, rows, rowFn) {
   if (empty) empty.style.display = "none";
   for (const row of rows) {
     const tr = document.createElement("tr");
-    tr.innerHTML = rowFn(row);
+    for (const td of rowFn(row)) {
+      tr.appendChild(td);
+    }
     tbody.appendChild(tr);
   }
 }
@@ -135,22 +167,20 @@ async function refresh() {
 
   const histRows = Object.entries(metrics.quarantine_reason_histogram || {});
   renderRows("histogram-table", "histogram-empty", histRows,
-    ([reason, count]) => `<td class="reason">${reason}</td><td>${count}</td>`);
+    ([reason, count]) => [reasonCell(reason), cell(count)]);
 
   const devices = await getJSON("/devices");
   renderRows("devices-table", null, devices, (d) =>
-    `<td>${d.device_id}</td><td>${d.vehicle_profile_id}</td>` +
-    `<td><span class="badge ${d.status}">${d.status}</span></td>`);
+    [cell(d.device_id), cell(d.vehicle_profile_id), badgeCell(d.status)]);
 
   const events = await getJSON("/events/recent?limit=20");
   renderRows("events-table", "events-empty", events, (e) =>
-    `<td>${e.gateway_id}</td><td>0x${e.can_id.toString(16)}</td><td>${e.can_channel}</td>` +
-    `<td>${e.capture_time}</td><td>${e.sequence}</td>`);
+    [cell(e.gateway_id), cell("0x" + e.can_id.toString(16)), cell(e.can_channel),
+     cell(e.capture_time), cell(e.sequence)]);
 
   const quarantine = await getJSON("/quarantine/recent?limit=20");
   renderRows("quarantine-table", "quarantine-empty", quarantine, (q) =>
-    `<td>${q.gateway_id}</td><td class="reason">${q.reason_code}</td>` +
-    `<td>${q.detail || ""}</td><td>${fmtTime(q.quarantined_at)}</td>`);
+    [cell(q.gateway_id), reasonCell(q.reason_code), cell(q.detail || ""), cell(fmtTime(q.quarantined_at))]);
 }
 
 refresh();
