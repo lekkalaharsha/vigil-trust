@@ -1,0 +1,32 @@
+# Secrets / key material -- NEVER commit any of this.
+certs/
+*.key
+*.pem
+!**/README.md
+
+# Local databases and generated runtime state (fixtures under data/ that are
+# NOT runtime-generated, e.g. data/synthetic_can.log, stay tracked)
+data/edge/
+data/backend/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env files with real secrets (keep .env.example)
+.env

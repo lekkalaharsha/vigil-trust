@@ -1,0 +1,32 @@
+# STATUS: written for completeness, NOT RUN IN THIS ENVIRONMENT -- no Docker
+# daemon was available in the sandbox this repository was generated in. The
+# demo was actually run and verified via the Makefile / venv path
+# (`make pki && make backend` + `make edge-replay`), see TEST_RESULTS.md and
+# DEMO_SCRIPT.md. Treat this file as DESIGN TARGET / UNVERIFIED until run.
+version: "3.8"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./certs:/mosquitto/certs:ro
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8443:8443"
+    environment:
+      - VIGIL_BACKEND_HOST=0.0.0.0
+      - VIGIL_BACKEND_PORT=8443
+      - VIGIL_BACKEND_DATA_DIR=/data/backend
+      - VIGIL_BACKEND_CHECKPOINT_KEY=/certs/backend_signing/checkpoint.key
+    volumes:
+      - ./data:/data
+      - ./certs:/certs:ro
+    depends_on:
+      - mosquitto

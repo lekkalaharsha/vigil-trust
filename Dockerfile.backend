@@ -1,0 +1,16 @@
+# STATUS: written for completeness, NOT BUILT OR RUN IN THIS ENVIRONMENT
+# (no Docker daemon available in the sandbox this repository was generated
+# in -- see docs/LIMITATIONS.md). The pip-based Makefile/venv workflow is
+# what was actually executed and is the primary documented path.
+
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY edge ./edge
+COPY backend ./backend
+COPY dashboard ./dashboard
+RUN pip install --no-cache-dir .
+
+EXPOSE 8443
+CMD ["python", "-m", "backend.main"]

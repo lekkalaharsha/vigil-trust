@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VIGIL-TRUST Backend Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff; --good: #3fb950; --bad: #f85149; --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .disclaimer {
+    background: #3d2b00; border: 1px solid var(--warn); color: #ffe7a3;
+    padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 20px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .card .value { font-size: 28px; font-weight: 600; margin-top: 4px; }
+  .value.good { color: var(--good); }
+  .value.bad { color: var(--bad); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge.trusted { background: rgba(63,185,80,0.15); color: var(--good); }
+  .badge.revoked { background: rgba(248,81,73,0.15); color: var(--bad); }
+  .reason { font-family: ui-monospace, monospace; font-size: 12px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .status-dot.ok { background: var(--good); }
+  .status-dot.down { background: var(--bad); }
+  footer { color: var(--muted); font-size: 11px; margin-top: 24px; }
+</style>
+</head>
+<body>
+  <h1>VIGIL-TRUST &mdash; Backend Dashboard</h1>
+  <div class="subtitle"><span id="health-dot" class="status-dot down"></span><span id="health-text">checking backend...</span></div>
+  <div class="disclaimer">
+    Hackathon prototype. Not a certified security product. ANPR/V2X/ISO-21434/UNECE-R155 compliance is NOT claimed.
+    See docs/LIMITATIONS.md.
+  </div>
+
+  <div class="grid">
+    <div class="card"><div class="label">Trusted events</div><div class="value good" id="trusted-count">-</div></div>
+    <div class="card"><div class="label">Quarantined events</div><div class="value bad" id="quarantine-count">-</div></div>
+    <div class="card"><div class="label">Registered devices</div><div class="value" id="device-count">-</div></div>
+    <div class="card"><div class="label">Backend uptime (s)</div><div class="value" id="uptime">-</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Rejection reason histogram</h2>
+    <table id="histogram-table"><thead><tr><th>Reason code</th><th>Count</th></tr></thead><tbody></tbody></table>
+    <div class="empty" id="histogram-empty" style="display:none;">No rejections recorded.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Devices / certificate status</h2>
+    <table id="devices-table"><thead><tr><th>Device ID</th><th>Vehicle profile</th><th>Status</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Latest verified telemetry (last 20)</h2>
+    <table id="events-table">
+      <thead><tr><th>Gateway</th><th>CAN ID</th><th>Channel</th><th>Capture time</th><th>Sequence</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="events-empty" style="display:none;">No verified telemetry yet.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Recent quarantine (security incident timeline, last 20)</h2>
+    <table id="quarantine-table">
+      <thead><tr><th>Gateway</th><th>Reason</th><th>Detail</th><th>Time</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="quarantine-empty" style="display:none;">No rejected telemetry.</div>
+  </div>
+
+  <footer>Auto-refreshes every 2s. Demo controls intentionally not exposed here: run attack_lab scripts from a terminal against the isolated simulator, never against this dashboard.</footer>
+
+<script>
+async function getJSON(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return res.json();
+}
+
+function fmtTime(epochSeconds) {
+  if (!epochSeconds) return "-";
+  return new Date(epochSeconds * 1000).toLocaleTimeString();
+}
+
+function renderRows(tbodyId, emptyId, rows, rowFn) {
+  const tbody = document.getElementById(tbodyId);
+  const empty = document.getElementById(emptyId);
+  tbody.innerHTML = "";
+  if (!rows || rows.length === 0) {
+    if (empty) empty.style.display = "block";
+    return;
+  }
+  if (empty) empty.style.display = "none";
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = rowFn(row);
+    tbody.appendChild(tr);
+  }
+}
+
+async function refresh() {
+  try {
+    const health = await getJSON("/health");
+    document.getElementById("health-dot").className = "status-dot ok";
+    document.getElementById("health-text").textContent = `backend online`;
+    document.getElementById("uptime").textContent = health.uptime_s.toFixed(0);
+  } catch (e) {
+    document.getElementById("health-dot").className = "status-dot down";
+    document.getElementById("health-text").textContent = "backend unreachable";
+    return;
+  }
+
+  const metrics = await getJSON("/metrics");
+  document.getElementById("trusted-count").textContent = metrics.trusted_event_count;
+  document.getElementById("quarantine-count").textContent = metrics.quarantine_event_count;
+  document.getElementById("device-count").textContent = metrics.device_count;
+
+  const histRows = Object.entries(metrics.quarantine_reason_histogram || {});
+  renderRows("histogram-table", "histogram-empty", histRows,
+    ([reason, count]) => `<td class="reason">${reason}</td><td>${count}</td>`);
+
+  const devices = await getJSON("/devices");
+  renderRows("devices-table", null, devices, (d) =>
+    `<td>${d.device_id}</td><td>${d.vehicle_profile_id}</td>` +
+    `<td><span class="badge ${d.status}">${d.status}</span></td>`);
+
+  const events = await getJSON("/events/recent?limit=20");
+  renderRows("events-table", "events-empty", events, (e) =>
+    `<td>${e.gateway_id}</td><td>0x${e.can_id.toString(16)}</td><td>${e.can_channel}</td>` +
+    `<td>${e.capture_time}</td><td>${e.sequence}</td>`);
+
+  const quarantine = await getJSON("/quarantine/recent?limit=20");
+  renderRows("quarantine-table", "quarantine-empty", quarantine, (q) =>
+    `<td>${q.gateway_id}</td><td class="reason">${q.reason_code}</td>` +
+    `<td>${q.detail || ""}</td><td>${fmtTime(q.quarantined_at)}</td>`);
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
